@@ -2,24 +2,106 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>P1 vs P2 Game</title>
-  <link rel="stylesheet" href="styles.css">
+  <title>Customizable FPS Game</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #222; color: #fff; }
+    #gameCanvas { display: block; margin: auto; background: #333; }
+    #hud { position: absolute; top: 10px; left: 10px; z-index: 10; }
+    #customize { position: absolute; top: 10px; right: 10px; z-index: 10; background: #444; padding: 10px; border-radius: 8px;}
+    label { display: block; margin-top: 5px; }
+  </style>
 </head>
 <body>
-  <div id="overlay"></div>
-  <div class="score-container left">
-    <div class="score" id="score-p1">0</div>
-    <div class="box">P1</div>
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+  <div id="hud">Ammo: <span id="ammo">10</span></div>
+  <div id="customize">
+    <label>
+      Weapon Ammo:
+      <input type="number" id="ammoInput" value="10" min="1" max="100">
+    </label>
+    <label>
+      Player Speed:
+      <input type="number" id="speedInput" value="5" min="1" max="20">
+    </label>
+    <label>
+      Player Color:
+      <input type="color" id="colorInput" value="#00ff00">
+    </label>
+    <button onclick="applyCustom()">Apply</button>
   </div>
-  <div class="score-container right">
-    <div class="score" id="score-p2">0</div>
-    <div class="box">P2</div>
-  </div>
-  <button id="start-btn">Start</button>
-  <div id="countdown"></div>
-  <div id="main-timer"></div>
-  <div id="winner"></div>
-  <canvas id="confetti"></canvas>
-  <script src="script.js"></script>
+  <script>
+    // Default settings
+    let ammo = 10;
+    let playerSpeed = 5;
+    let playerColor = "#00ff00";
+
+    // Player and bullet setup
+    let player = { x: 400, y: 300, size: 40 };
+    let bullets = [];
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw player
+      ctx.fillStyle = playerColor;
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.size, 0, Math.PI*2);
+      ctx.fill();
+
+      // Draw bullets
+      ctx.fillStyle = '#ff0';
+      bullets.forEach(bullet => {
+        ctx.beginPath();
+        ctx.arc(bullet.x, bullet.y, 5, 0, Math.PI*2);
+        ctx.fill();
+      });
+    }
+
+    function update() {
+      // Move bullets
+      bullets.forEach(bullet => bullet.x += bullet.vx);
+      bullets.forEach(bullet => bullet.y += bullet.vy);
+      // Remove bullets out of bounds
+      bullets = bullets.filter(b => b.x > 0 && b.x < canvas.width && b.y > 0 && b.y < canvas.height);
+
+      draw();
+      requestAnimationFrame(update);
+    }
+
+    // Controls
+    document.addEventListener('keydown', e => {
+      if (e.key === 'w') player.y -= playerSpeed;
+      if (e.key === 's') player.y += playerSpeed;
+      if (e.key === 'a') player.x -= playerSpeed;
+      if (e.key === 'd') player.x += playerSpeed;
+    });
+
+    // Shoot
+    canvas.addEventListener('click', e => {
+      if (ammo > 0) {
+        let angle = Math.atan2(e.offsetY - player.y, e.offsetX - player.x);
+        bullets.push({
+          x: player.x,
+          y: player.y,
+          vx: Math.cos(angle) * 10,
+          vy: Math.sin(angle) * 10
+        });
+        ammo--;
+        document.getElementById('ammo').textContent = ammo;
+      }
+    });
+
+    // Customization
+    function applyCustom() {
+      ammo = parseInt(document.getElementById('ammoInput').value, 10);
+      document.getElementById('ammo').textContent = ammo;
+      playerSpeed = parseInt(document.getElementById('speedInput').value, 10);
+      playerColor = document.getElementById('colorInput').value;
+    }
+
+    update();
+  </script>
 </body>
 </html>
