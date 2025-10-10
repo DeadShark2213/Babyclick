@@ -1,155 +1,190 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8">
-  <title>PvZ Game Prototype</title>
+  <title>Plants vs. Zombies - HTML Prototype</title>
   <style>
-    body { background: #263238; color: #fff; font-family: Arial, sans-serif; margin: 0; }
-    #gameCanvas { background: #567d46; display: block; margin: 20px auto; border: 4px solid #222; }
-    .plant-select { margin: 10px; }
-    .plant-btn { padding: 10px; margin-right: 8px; background: #8bc34a; border: none; border-radius: 6px; cursor: pointer; }
-    .plant-btn.locked { background: #bbb; cursor: not-allowed; }
-    #levelSelect { margin: 20px; }
+    body { font-family: Arial; background: #4cbb17; }
+    #gameBoard {
+      display: grid;
+      grid-template-columns: repeat(9, 70px);
+      grid-template-rows: repeat(5, 90px);
+      gap: 2px;
+      background: #7ac142;
+      margin: 20px auto;
+      width: 640px;
+      height: 450px;
+      border: 4px solid #3b3b3b;
+      position: relative;
+    }
+    .cell {
+      border: 1px solid #3b3b3b;
+      background: rgba(255,255,255,0.05);
+      position: relative;
+    }
+    .plant, .zombie {
+      position: absolute;
+      width: 60px; height: 80px;
+      pointer-events: none;
+      transition: left 0.3s, top 0.3s;
+    }
+    .plant { z-index: 2; }
+    .zombie { z-index: 3; }
+    #plantBar {
+      margin: 20px auto;
+      width: 640px;
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+    .plantIcon {
+      width: 60px; height: 60px;
+      border: 2px solid #3b3b3b;
+      background: #a3e635;
+      cursor: pointer;
+    }
+    #sunCounter {
+      font-size: 24px; font-weight: bold;
+      color: #fff; background: #fdfd96; padding: 5px 15px; border-radius: 15px;
+      margin-bottom: 10px;
+      display: inline-block;
+    }
   </style>
 </head>
 <body>
-  <h1>Plants vs. Zombies: HTML Edition</h1>
-  <div id="levelSelect">
-    <label for="level">Choose Level:</label>
-    <select id="level">
-      <option value="1">Level 1</option>
-      <option value="2">Level 2</option>
-      <option value="3">Level 3</option>
-    </select>
-    <button onclick="startLevel()">Start Level</button>
+  <div id="sunCounter">Sun: <span id="sunValue">150</span></div>
+  <div id="plantBar">
+    <div class="plantIcon" data-plant="pea" title="Peashooter (100 sun)">🌱</div>
+    <div class="plantIcon" data-plant="sunflower" title="Sunflower (50 sun)">🌻</div>
+    <!-- Add more plants here -->
   </div>
-  <div class="plant-select" id="plantSelect"></div>
-  <canvas id="gameCanvas" width="900" height="400"></canvas>
+  <div id="gameBoard"></div>
   <script>
-    // Plant data & unlocks
-    const plants = [
-      { name: "Peashooter", unlockedAt: 1, color: "#4CAF50" },
-      { name: "Sunflower", unlockedAt: 2, color: "#FFD600" },
-      { name: "Cherry Bomb", unlockedAt: 3, color: "#D32F2F" }
-    ];
-    let currentLevel = 1;
+    const ROWS = 5, COLS = 9;
+    const gameBoard = document.getElementById('gameBoard');
     let selectedPlant = null;
-    let plantsOnField = [];
+    let sun = 150;
+    let plants = [];
     let zombies = [];
-    let gameActive = false;
+    let cellRects = [];
 
-    function renderPlantButtons() {
-      const container = document.getElementById('plantSelect');
-      container.innerHTML = '';
-      plants.forEach((plant, i) => {
-        const btn = document.createElement('button');
-        btn.textContent = plant.name + (currentLevel >= plant.unlockedAt ? "" : " (Locked)");
-        btn.className = "plant-btn" + (currentLevel >= plant.unlockedAt ? "" : " locked");
-        btn.disabled = currentLevel < plant.unlockedAt;
-        btn.onclick = () => {
-          if (currentLevel >= plant.unlockedAt) selectedPlant = plant;
-        };
-        container.appendChild(btn);
-      });
-    }
-
-    document.getElementById('level').addEventListener('change', function() {
-      currentLevel = parseInt(this.value);
-      renderPlantButtons();
-    });
-
-    function startLevel() {
-      gameActive = true;
-      plantsOnField = [];
-      zombies = [];
-      spawnZombies(currentLevel);
-      renderPlantButtons();
-      drawGame();
-    }
-
-    function spawnZombies(level) {
-      zombies = [];
-      for (let i = 0; i < level * 3; i++) {
-        zombies.push({
-          x: 850 + Math.random() * 100,
-          y: 50 + Math.random() * 300,
-          hp: 3 + level,
-          speed: 0.5 + level * 0.2
-        });
+    // Initialize grid
+    for(let r=0; r<ROWS; r++) {
+      for(let c=0; c<COLS; c++) {
+        let cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.row = r;
+        cell.dataset.col = c;
+        gameBoard.appendChild(cell);
       }
     }
 
-    const canvas = document.getElementById('gameCanvas');
-    const ctx = canvas.getContext('2d');
+    // Get grid cell positions for placing elements
+    function updateCellRects() {
+      cellRects = [];
+      let cells = document.querySelectorAll('.cell');
+      cells.forEach(cell => {
+        cellRects.push(cell.getBoundingClientRect());
+      });
+    }
 
-    canvas.addEventListener('click', function(e) {
-      if (!selectedPlant || !gameActive) return;
-      const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      plantsOnField.push({ ...selectedPlant, x, y, cooldown: 0 });
+    window.onload = updateCellRects;
+    window.onresize = updateCellRects;
+
+    // Plant selection
+    document.querySelectorAll('.plantIcon').forEach(icon => {
+      icon.onclick = function() {
+        selectedPlant = this.dataset.plant;
+        document.querySelectorAll('.plantIcon').forEach(i => i.style.background = '#a3e635');
+        this.style.background = '#fdfd96';
+      };
     });
 
-    function drawGame() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // Plant costs
+    const plantData = {
+      pea: { cost: 100, emoji: '🌱' },
+      sunflower: { cost: 50, emoji: '🌻' }
+    };
 
-      // Draw grid
-      for (let i = 0; i < 9; i++) {
-        ctx.strokeStyle = "#fff";
-        ctx.strokeRect(i * 100, 0, 100, 400);
+    // Place plant
+    gameBoard.addEventListener('click', function(e) {
+      if(!selectedPlant) return;
+      if(e.target.classList.contains('cell')) {
+        let row = +e.target.dataset.row, col = +e.target.dataset.col;
+        let exists = plants.find(p => p.row === row && p.col === col);
+        if(exists) return;
+        let cost = plantData[selectedPlant].cost;
+        if(sun < cost) return;
+        sun -= cost;
+        document.getElementById('sunValue').textContent = sun;
+        let plant = { type: selectedPlant, row, col, hp: 5 };
+        plants.push(plant);
+        renderPlant(plant);
       }
+    });
 
-      // Draw plants
-      plantsOnField.forEach(plant => {
-        ctx.beginPath();
-        ctx.arc(plant.x, plant.y, 25, 0, 2 * Math.PI);
-        ctx.fillStyle = plant.color;
-        ctx.fill();
-        ctx.strokeStyle = "#222";
-        ctx.stroke();
-        ctx.fillStyle = "#222";
-        ctx.font = "14px Arial";
-        ctx.fillText(plant.name[0], plant.x - 6, plant.y + 6);
-      });
+    // Render plant
+    function renderPlant(p) {
+      let cell = document.querySelector(`.cell[data-row="${p.row}"][data-col="${p.col}"]`);
+      let el = document.createElement('div');
+      el.className = 'plant';
+      el.style.left = '5px';
+      el.style.top = '5px';
+      el.textContent = plantData[p.type].emoji;
+      cell.appendChild(el);
+      p.el = el;
+    }
 
-      // Draw zombies
-      zombies.forEach(zombie => {
-        ctx.fillStyle = "#607d8b";
-        ctx.fillRect(zombie.x, zombie.y - 20, 40, 40);
-        ctx.fillStyle = "#222";
-        ctx.fillText("🧟", zombie.x + 8, zombie.y + 8);
-      });
+    // Spawn zombies randomly
+    setInterval(function() {
+      let row = Math.floor(Math.random() * ROWS);
+      let zombie = { row, col: COLS-1, hp: 10 };
+      zombies.push(zombie);
+      renderZombie(zombie);
+    }, 4000);
 
-      // Move zombies
-      zombies.forEach(zombie => {
-        zombie.x -= zombie.speed;
-      });
+    // Render zombie
+    function renderZombie(z) {
+      let cell = document.querySelector(`.cell[data-row="${z.row}"][data-col="${z.col}"]`);
+      let el = document.createElement('div');
+      el.className = 'zombie';
+      el.style.left = '5px';
+      el.style.top = '5px';
+      el.textContent = '🧟';
+      cell.appendChild(el);
+      z.el = el;
+    }
 
-      // Check collisions (simple)
-      plantsOnField.forEach(plant => {
-        zombies.forEach(zombie => {
-          if (Math.abs(plant.x - zombie.x) < 30 && Math.abs(plant.y - zombie.y) < 30) {
-            zombie.hp -= 1;
+    // Move zombies
+    setInterval(function() {
+      zombies.forEach(z => {
+        if(z.col > 0) {
+          // Check for plant in next cell
+          let hit = plants.find(p => p.row === z.row && p.col === z.col-1);
+          if(hit) {
+            hit.hp -= 1;
+            if(hit.hp <= 0) {
+              hit.el.remove();
+              plants = plants.filter(p => p !== hit);
+            }
+          } else {
+            z.col -= 1;
+            let cell = document.querySelector(`.cell[data-row="${z.row}"][data-col="${z.col}"]`);
+            cell.appendChild(z.el);
           }
-        });
+        } else {
+          // Zombie reached house
+          alert("A zombie got through! Game Over!");
+          location.reload();
+        }
       });
+    }, 1200);
 
-      // Remove defeated zombies
-      zombies = zombies.filter(z => z.hp > 0 && z.x > 0);
+    // Sun generation
+    setInterval(function() {
+      sun += 25;
+      document.getElementById('sunValue').textContent = sun;
+    }, 4000);
 
-      // Win/Lose detection
-      if (gameActive && zombies.length === 0) {
-        gameActive = false;
-        alert("Level Cleared! Unlock new plants!");
-      } else if (gameActive && zombies.some(z => z.x < 60)) {
-        gameActive = false;
-        alert("Zombies reached your house! Try again.");
-      }
-
-      if (gameActive) requestAnimationFrame(drawGame);
-    }
-
-    renderPlantButtons();
   </script>
 </body>
 </html>
