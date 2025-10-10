@@ -2,287 +2,154 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Upgraded FPS Game</title>
+  <title>PvZ Game Prototype</title>
   <style>
-    body { margin: 0; overflow: hidden; background: #222; color: #fff; }
-    #gameCanvas { display: block; margin: auto; background: #333; }
-    #hud { position: absolute; top: 10px; left: 10px; z-index: 10; }
-    #customize { position: absolute; top: 10px; right: 10px; z-index: 10; background: #444; padding: 10px; border-radius: 8px;}
-    label { display: block; margin-top: 5px; }
+    body { background: #263238; color: #fff; font-family: Arial, sans-serif; margin: 0; }
+    #gameCanvas { background: #567d46; display: block; margin: 20px auto; border: 4px solid #222; }
+    .plant-select { margin: 10px; }
+    .plant-btn { padding: 10px; margin-right: 8px; background: #8bc34a; border: none; border-radius: 6px; cursor: pointer; }
+    .plant-btn.locked { background: #bbb; cursor: not-allowed; }
+    #levelSelect { margin: 20px; }
   </style>
 </head>
 <body>
-  <canvas id="gameCanvas" width="800" height="600"></canvas>
-  <div id="hud">
-    Ammo: <span id="ammo">10</span> |
-    Health: <span id="health">50</span>
+  <h1>Plants vs. Zombies: HTML Edition</h1>
+  <div id="levelSelect">
+    <label for="level">Choose Level:</label>
+    <select id="level">
+      <option value="1">Level 1</option>
+      <option value="2">Level 2</option>
+      <option value="3">Level 3</option>
+    </select>
+    <button onclick="startLevel()">Start Level</button>
   </div>
-  <div id="customize">
-    <label>
-      Weapon Ammo:
-      <input type="number" id="ammoInput" value="10" min="1" max="20">
-    </label>
-    <label>
-      Player Speed:
-      <input type="number" id="speedInput" value="5" min="1" max="10">
-    </label>
-    <label>
-      Player Color:
-      <input type="color" id="colorInput" value="#00ff00">
-    </label>
-    <button onclick="applyCustom()">Apply</button>
-  </div>
+  <div class="plant-select" id="plantSelect"></div>
+  <canvas id="gameCanvas" width="900" height="400"></canvas>
   <script>
-    // Default settings
-    let ammo = 10;
-    let playerSpeed = 5;
-    let playerColor = "#00ff00";
-    let playerHealth = 50;
-    const maxPlayerHealth = 50;
+    // Plant data & unlocks
+    const plants = [
+      { name: "Peashooter", unlockedAt: 1, color: "#4CAF50" },
+      { name: "Sunflower", unlockedAt: 2, color: "#FFD600" },
+      { name: "Cherry Bomb", unlockedAt: 3, color: "#D32F2F" }
+    ];
+    let currentLevel = 1;
+    let selectedPlant = null;
+    let plantsOnField = [];
+    let zombies = [];
+    let gameActive = false;
 
-    // Player setup
-    let player = { x: 400, y: 300, size: 40 };
-    let bullets = [];
-
-    // Dummy setup
-    function createDummy() {
-      return {
-        x: Math.random() * 600 + 100,
-        y: Math.random() * 400 + 100,
-        size: 30,
-        health: 50,
-        alive: true,
-        respawnTimer: 0,
-        effect: null // dust or smoke
-      };
+    function renderPlantButtons() {
+      const container = document.getElementById('plantSelect');
+      container.innerHTML = '';
+      plants.forEach((plant, i) => {
+        const btn = document.createElement('button');
+        btn.textContent = plant.name + (currentLevel >= plant.unlockedAt ? "" : " (Locked)");
+        btn.className = "plant-btn" + (currentLevel >= plant.unlockedAt ? "" : " locked");
+        btn.disabled = currentLevel < plant.unlockedAt;
+        btn.onclick = () => {
+          if (currentLevel >= plant.unlockedAt) selectedPlant = plant;
+        };
+        container.appendChild(btn);
+      });
     }
-    let dummies = [createDummy(), createDummy(), createDummy()];
 
-    // Environment objects
-    let trees = Array.from({length: 5}, () => ({
-      x: Math.random() * 700 + 50,
-      y: Math.random() * 500 + 50,
-      size: 50
-    }));
-    let grass = Array.from({length: 20}, () => ({
-      x: Math.random() * 800,
-      y: Math.random() * 600,
-      width: 20,
-      height: 5
-    }));
+    document.getElementById('level').addEventListener('change', function() {
+      currentLevel = parseInt(this.value);
+      renderPlantButtons();
+    });
+
+    function startLevel() {
+      gameActive = true;
+      plantsOnField = [];
+      zombies = [];
+      spawnZombies(currentLevel);
+      renderPlantButtons();
+      drawGame();
+    }
+
+    function spawnZombies(level) {
+      zombies = [];
+      for (let i = 0; i < level * 3; i++) {
+        zombies.push({
+          x: 850 + Math.random() * 100,
+          y: 50 + Math.random() * 300,
+          hp: 3 + level,
+          speed: 0.5 + level * 0.2
+        });
+      }
+    }
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
 
-    function drawPlayer() {
-      // Body
-      ctx.fillStyle = playerColor;
-      ctx.beginPath();
-      ctx.arc(player.x, player.y, player.size, 0, Math.PI*2);
-      ctx.fill();
+    canvas.addEventListener('click', function(e) {
+      if (!selectedPlant || !gameActive) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      plantsOnField.push({ ...selectedPlant, x, y, cooldown: 0 });
+    });
 
-      // Face
-      ctx.fillStyle = "#fff";
-      ctx.beginPath();
-      ctx.arc(player.x-12, player.y-10, 5, 0, Math.PI*2); // Left eye
-      ctx.arc(player.x+12, player.y-10, 5, 0, Math.PI*2); // Right eye
-      ctx.fill();
-      ctx.strokeStyle = "#fff";
-      ctx.beginPath();
-      ctx.arc(player.x, player.y+10, 10, 0, Math.PI); // Smile
-      ctx.stroke();
-
-      // Hand + Gun
-      ctx.save();
-      ctx.translate(player.x + player.size, player.y);
-      ctx.rotate(Math.PI/8);
-      ctx.fillStyle = "#aaa";
-      ctx.fillRect(0, -8, 25, 16); // Hand
-      ctx.fillStyle = "#444";
-      ctx.fillRect(25, -4, 18, 8); // Gun
-      ctx.restore();
-    }
-
-    function drawHealthBar(x, y, health, maxHealth) {
-      ctx.fillStyle = "#000";
-      ctx.fillRect(x-25, y-35, 50, 8);
-      ctx.fillStyle = "#f00";
-      ctx.fillRect(x-25, y-35, 50 * (health / maxHealth), 8);
-      ctx.strokeStyle = "#fff";
-      ctx.strokeRect(x-25, y-35, 50, 8);
-    }
-
-    function drawDummies() {
-      dummies.forEach(dummy => {
-        if (!dummy.alive) {
-          if (dummy.effect === "dust") {
-            ctx.fillStyle = "rgba(200,200,100,0.5)";
-            ctx.beginPath();
-            ctx.arc(dummy.x, dummy.y, dummy.size+10, 0, Math.PI*2);
-            ctx.fill();
-          } else if (dummy.effect === "smoke") {
-            ctx.fillStyle = "rgba(180,180,180,0.5)";
-            ctx.beginPath();
-            ctx.arc(dummy.x, dummy.y, dummy.size+10, 0, Math.PI*2);
-            ctx.fill();
-          }
-          return;
-        }
-        // Dummy body
-        ctx.fillStyle = "#c44";
-        ctx.beginPath();
-        ctx.arc(dummy.x, dummy.y, dummy.size, 0, Math.PI*2);
-        ctx.fill();
-        // Dummy face
-        ctx.fillStyle = "#fff";
-        ctx.beginPath();
-        ctx.arc(dummy.x-8, dummy.y-7, 3, 0, Math.PI*2); // Left eye
-        ctx.arc(dummy.x+8, dummy.y-7, 3, 0, Math.PI*2); // Right eye
-        ctx.fill();
-        ctx.strokeStyle = "#fff";
-        ctx.beginPath();
-        ctx.arc(dummy.x, dummy.y+3, 7, 0, Math.PI); // Smile
-        ctx.stroke();
-        drawHealthBar(dummy.x, dummy.y, dummy.health, 50);
-      });
-    }
-
-    function drawEnvironment() {
-      // Trees
-      trees.forEach(tree => {
-        ctx.fillStyle = "#075e18";
-        ctx.beginPath();
-        ctx.arc(tree.x, tree.y, tree.size / 2, 0, Math.PI*2);
-        ctx.fill();
-        ctx.fillStyle = "#8b5a2b";
-        ctx.fillRect(tree.x-7, tree.y, 14, tree.size / 2); // trunk
-      });
-      // Grass
-      grass.forEach(g => {
-        ctx.fillStyle = "#3c8200";
-        ctx.fillRect(g.x, g.y, g.width, g.height);
-      });
-      // Objects: Crate
-      ctx.fillStyle = "#964B00";
-      ctx.fillRect(600, 500, 40, 40);
-    }
-
-    function drawBullets() {
-      ctx.fillStyle = '#ff0';
-      bullets.forEach(bullet => {
-        ctx.beginPath();
-        ctx.arc(bullet.x, bullet.y, 5, 0, Math.PI*2);
-        ctx.fill();
-      });
-    }
-
-    function draw() {
+    function drawGame() {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      drawEnvironment();
-      drawPlayer();
-      drawBullets();
-      drawDummies();
-      drawHealthBar(player.x, player.y, playerHealth, maxPlayerHealth);
-    }
 
-    function update() {
-      // Move bullets
-      bullets.forEach(bullet => {
-        bullet.x += bullet.vx;
-        bullet.y += bullet.vy;
-      });
-      // Remove bullets out of bounds
-      bullets = bullets.filter(b => b.x > 0 && b.x < canvas.width && b.y > 0 && b.y < canvas.height);
-
-      // Dummy hit detection
-      bullets.forEach(bullet => {
-        dummies.forEach(dummy => {
-          if (dummy.alive && Math.hypot(dummy.x-bullet.x, dummy.y-bullet.y) < dummy.size) {
-            dummy.health -= 5;
-            bullet.hit = true;
-            showDamage(dummy.x, dummy.y, 5);
-            if (dummy.health <= 0) {
-              dummy.alive = false;
-              dummy.effect = "dust";
-              dummy.respawnTimer = 600; // 10 seconds at 60 FPS
-            }
-          }
-        });
-      });
-      // Remove bullets that hit
-      bullets = bullets.filter(b => !b.hit);
-
-      // Dummy respawn logic
-      dummies.forEach(dummy => {
-        if (!dummy.alive) {
-          dummy.respawnTimer--;
-          if (dummy.respawnTimer === 540) dummy.effect = null; // Remove dust after 1 sec
-          if (dummy.respawnTimer === 60) dummy.effect = "smoke"; // Show smoke for 1 sec before reappear
-          if (dummy.respawnTimer <= 0) {
-            dummy.alive = true;
-            dummy.health = 50;
-            dummy.effect = null;
-          }
-        }
-      });
-
-      // Damage display timer
-      damageTexts.forEach(dt => dt.timer--);
-      damageTexts = damageTexts.filter(dt => dt.timer > 0);
-
-      draw();
-      drawDamageTexts();
-      requestAnimationFrame(update);
-    }
-
-    // Controls
-    document.addEventListener('keydown', e => {
-      if (e.key === 'w') player.y = Math.max(player.size, player.y - playerSpeed);
-      if (e.key === 's') player.y = Math.min(canvas.height - player.size, player.y + playerSpeed);
-      if (e.key === 'a') player.x = Math.max(player.size, player.x - playerSpeed);
-      if (e.key === 'd') player.x = Math.min(canvas.width - player.size, player.x + playerSpeed);
-    });
-
-    // Shoot
-    canvas.addEventListener('click', e => {
-      if (ammo > 0) {
-        let angle = Math.atan2(e.offsetY - player.y, e.offsetX - player.x);
-        bullets.push({
-          x: player.x + player.size, // from gun
-          y: player.y,
-          vx: Math.cos(angle) * 10,
-          vy: Math.sin(angle) * 10
-        });
-        ammo--;
-        document.getElementById('ammo').textContent = ammo;
+      // Draw grid
+      for (let i = 0; i < 9; i++) {
+        ctx.strokeStyle = "#fff";
+        ctx.strokeRect(i * 100, 0, 100, 400);
       }
-    });
 
-    // Customization
-    function applyCustom() {
-      ammo = Math.min(20, parseInt(document.getElementById('ammoInput').value, 10));
-      document.getElementById('ammo').textContent = ammo;
-      playerSpeed = Math.min(10, parseInt(document.getElementById('speedInput').value, 10));
-      playerColor = document.getElementById('colorInput').value;
-    }
-
-    // Damage display
-    let damageTexts = [];
-    function showDamage(x, y, amount) {
-      damageTexts.push({x, y, amount, timer: 30});
-    }
-    function drawDamageTexts() {
-      damageTexts.forEach(dt => {
-        ctx.fillStyle = "#fff";
-        ctx.font = "20px Arial";
-        ctx.fillText("-" + dt.amount, dt.x-10, dt.y-30 - (30-dt.timer));
+      // Draw plants
+      plantsOnField.forEach(plant => {
+        ctx.beginPath();
+        ctx.arc(plant.x, plant.y, 25, 0, 2 * Math.PI);
+        ctx.fillStyle = plant.color;
+        ctx.fill();
+        ctx.strokeStyle = "#222";
+        ctx.stroke();
+        ctx.fillStyle = "#222";
+        ctx.font = "14px Arial";
+        ctx.fillText(plant.name[0], plant.x - 6, plant.y + 6);
       });
+
+      // Draw zombies
+      zombies.forEach(zombie => {
+        ctx.fillStyle = "#607d8b";
+        ctx.fillRect(zombie.x, zombie.y - 20, 40, 40);
+        ctx.fillStyle = "#222";
+        ctx.fillText("🧟", zombie.x + 8, zombie.y + 8);
+      });
+
+      // Move zombies
+      zombies.forEach(zombie => {
+        zombie.x -= zombie.speed;
+      });
+
+      // Check collisions (simple)
+      plantsOnField.forEach(plant => {
+        zombies.forEach(zombie => {
+          if (Math.abs(plant.x - zombie.x) < 30 && Math.abs(plant.y - zombie.y) < 30) {
+            zombie.hp -= 1;
+          }
+        });
+      });
+
+      // Remove defeated zombies
+      zombies = zombies.filter(z => z.hp > 0 && z.x > 0);
+
+      // Win/Lose detection
+      if (gameActive && zombies.length === 0) {
+        gameActive = false;
+        alert("Level Cleared! Unlock new plants!");
+      } else if (gameActive && zombies.some(z => z.x < 60)) {
+        gameActive = false;
+        alert("Zombies reached your house! Try again.");
+      }
+
+      if (gameActive) requestAnimationFrame(drawGame);
     }
 
-    // Player health display
-    document.getElementById('health').textContent = playerHealth;
-
-    update();
+    renderPlantButtons();
   </script>
 </body>
 </html>
