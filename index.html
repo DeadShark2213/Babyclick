@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Customizable FPS Game</title>
+  <title>Upgraded FPS Game</title>
   <style>
     body { margin: 0; overflow: hidden; background: #222; color: #fff; }
     #gameCanvas { display: block; margin: auto; background: #333; }
@@ -13,15 +13,18 @@
 </head>
 <body>
   <canvas id="gameCanvas" width="800" height="600"></canvas>
-  <div id="hud">Ammo: <span id="ammo">10</span></div>
+  <div id="hud">
+    Ammo: <span id="ammo">10</span> |
+    Health: <span id="health">50</span>
+  </div>
   <div id="customize">
     <label>
       Weapon Ammo:
-      <input type="number" id="ammoInput" value="10" min="1" max="100">
+      <input type="number" id="ammoInput" value="10" min="1" max="20">
     </label>
     <label>
       Player Speed:
-      <input type="number" id="speedInput" value="5" min="1" max="20">
+      <input type="number" id="speedInput" value="5" min="1" max="10">
     </label>
     <label>
       Player Color:
@@ -34,23 +37,137 @@
     let ammo = 10;
     let playerSpeed = 5;
     let playerColor = "#00ff00";
+    let playerHealth = 50;
+    const maxPlayerHealth = 50;
 
-    // Player and bullet setup
+    // Player setup
     let player = { x: 400, y: 300, size: 40 };
     let bullets = [];
+
+    // Dummy setup
+    function createDummy() {
+      return {
+        x: Math.random() * 600 + 100,
+        y: Math.random() * 400 + 100,
+        size: 30,
+        health: 50,
+        alive: true,
+        respawnTimer: 0,
+        effect: null // dust or smoke
+      };
+    }
+    let dummies = [createDummy(), createDummy(), createDummy()];
+
+    // Environment objects
+    let trees = Array.from({length: 5}, () => ({
+      x: Math.random() * 700 + 50,
+      y: Math.random() * 500 + 50,
+      size: 50
+    }));
+    let grass = Array.from({length: 20}, () => ({
+      x: Math.random() * 800,
+      y: Math.random() * 600,
+      width: 20,
+      height: 5
+    }));
+
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
 
-    function draw() {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      // Draw player
+    function drawPlayer() {
+      // Body
       ctx.fillStyle = playerColor;
       ctx.beginPath();
       ctx.arc(player.x, player.y, player.size, 0, Math.PI*2);
       ctx.fill();
 
-      // Draw bullets
+      // Face
+      ctx.fillStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(player.x-12, player.y-10, 5, 0, Math.PI*2); // Left eye
+      ctx.arc(player.x+12, player.y-10, 5, 0, Math.PI*2); // Right eye
+      ctx.fill();
+      ctx.strokeStyle = "#fff";
+      ctx.beginPath();
+      ctx.arc(player.x, player.y+10, 10, 0, Math.PI); // Smile
+      ctx.stroke();
+
+      // Hand + Gun
+      ctx.save();
+      ctx.translate(player.x + player.size, player.y);
+      ctx.rotate(Math.PI/8);
+      ctx.fillStyle = "#aaa";
+      ctx.fillRect(0, -8, 25, 16); // Hand
+      ctx.fillStyle = "#444";
+      ctx.fillRect(25, -4, 18, 8); // Gun
+      ctx.restore();
+    }
+
+    function drawHealthBar(x, y, health, maxHealth) {
+      ctx.fillStyle = "#000";
+      ctx.fillRect(x-25, y-35, 50, 8);
+      ctx.fillStyle = "#f00";
+      ctx.fillRect(x-25, y-35, 50 * (health / maxHealth), 8);
+      ctx.strokeStyle = "#fff";
+      ctx.strokeRect(x-25, y-35, 50, 8);
+    }
+
+    function drawDummies() {
+      dummies.forEach(dummy => {
+        if (!dummy.alive) {
+          if (dummy.effect === "dust") {
+            ctx.fillStyle = "rgba(200,200,100,0.5)";
+            ctx.beginPath();
+            ctx.arc(dummy.x, dummy.y, dummy.size+10, 0, Math.PI*2);
+            ctx.fill();
+          } else if (dummy.effect === "smoke") {
+            ctx.fillStyle = "rgba(180,180,180,0.5)";
+            ctx.beginPath();
+            ctx.arc(dummy.x, dummy.y, dummy.size+10, 0, Math.PI*2);
+            ctx.fill();
+          }
+          return;
+        }
+        // Dummy body
+        ctx.fillStyle = "#c44";
+        ctx.beginPath();
+        ctx.arc(dummy.x, dummy.y, dummy.size, 0, Math.PI*2);
+        ctx.fill();
+        // Dummy face
+        ctx.fillStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(dummy.x-8, dummy.y-7, 3, 0, Math.PI*2); // Left eye
+        ctx.arc(dummy.x+8, dummy.y-7, 3, 0, Math.PI*2); // Right eye
+        ctx.fill();
+        ctx.strokeStyle = "#fff";
+        ctx.beginPath();
+        ctx.arc(dummy.x, dummy.y+3, 7, 0, Math.PI); // Smile
+        ctx.stroke();
+        drawHealthBar(dummy.x, dummy.y, dummy.health, 50);
+      });
+    }
+
+    function drawEnvironment() {
+      // Trees
+      trees.forEach(tree => {
+        ctx.fillStyle = "#075e18";
+        ctx.beginPath();
+        ctx.arc(tree.x, tree.y, tree.size / 2, 0, Math.PI*2);
+        ctx.fill();
+        ctx.fillStyle = "#8b5a2b";
+        ctx.fillRect(tree.x-7, tree.y, 14, tree.size / 2); // trunk
+      });
+      // Grass
+      grass.forEach(g => {
+        ctx.fillStyle = "#3c8200";
+        ctx.fillRect(g.x, g.y, g.width, g.height);
+      });
+      // Objects: Crate
+      ctx.fillStyle = "#964B00";
+      ctx.fillRect(600, 500, 40, 40);
+    }
+
+    function drawBullets() {
       ctx.fillStyle = '#ff0';
       bullets.forEach(bullet => {
         ctx.beginPath();
@@ -59,23 +176,71 @@
       });
     }
 
+    function draw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawEnvironment();
+      drawPlayer();
+      drawBullets();
+      drawDummies();
+      drawHealthBar(player.x, player.y, playerHealth, maxPlayerHealth);
+    }
+
     function update() {
       // Move bullets
-      bullets.forEach(bullet => bullet.x += bullet.vx);
-      bullets.forEach(bullet => bullet.y += bullet.vy);
+      bullets.forEach(bullet => {
+        bullet.x += bullet.vx;
+        bullet.y += bullet.vy;
+      });
       // Remove bullets out of bounds
       bullets = bullets.filter(b => b.x > 0 && b.x < canvas.width && b.y > 0 && b.y < canvas.height);
 
+      // Dummy hit detection
+      bullets.forEach(bullet => {
+        dummies.forEach(dummy => {
+          if (dummy.alive && Math.hypot(dummy.x-bullet.x, dummy.y-bullet.y) < dummy.size) {
+            dummy.health -= 5;
+            bullet.hit = true;
+            showDamage(dummy.x, dummy.y, 5);
+            if (dummy.health <= 0) {
+              dummy.alive = false;
+              dummy.effect = "dust";
+              dummy.respawnTimer = 600; // 10 seconds at 60 FPS
+            }
+          }
+        });
+      });
+      // Remove bullets that hit
+      bullets = bullets.filter(b => !b.hit);
+
+      // Dummy respawn logic
+      dummies.forEach(dummy => {
+        if (!dummy.alive) {
+          dummy.respawnTimer--;
+          if (dummy.respawnTimer === 540) dummy.effect = null; // Remove dust after 1 sec
+          if (dummy.respawnTimer === 60) dummy.effect = "smoke"; // Show smoke for 1 sec before reappear
+          if (dummy.respawnTimer <= 0) {
+            dummy.alive = true;
+            dummy.health = 50;
+            dummy.effect = null;
+          }
+        }
+      });
+
+      // Damage display timer
+      damageTexts.forEach(dt => dt.timer--);
+      damageTexts = damageTexts.filter(dt => dt.timer > 0);
+
       draw();
+      drawDamageTexts();
       requestAnimationFrame(update);
     }
 
     // Controls
     document.addEventListener('keydown', e => {
-      if (e.key === 'w') player.y -= playerSpeed;
-      if (e.key === 's') player.y += playerSpeed;
-      if (e.key === 'a') player.x -= playerSpeed;
-      if (e.key === 'd') player.x += playerSpeed;
+      if (e.key === 'w') player.y = Math.max(player.size, player.y - playerSpeed);
+      if (e.key === 's') player.y = Math.min(canvas.height - player.size, player.y + playerSpeed);
+      if (e.key === 'a') player.x = Math.max(player.size, player.x - playerSpeed);
+      if (e.key === 'd') player.x = Math.min(canvas.width - player.size, player.x + playerSpeed);
     });
 
     // Shoot
@@ -83,7 +248,7 @@
       if (ammo > 0) {
         let angle = Math.atan2(e.offsetY - player.y, e.offsetX - player.x);
         bullets.push({
-          x: player.x,
+          x: player.x + player.size, // from gun
           y: player.y,
           vx: Math.cos(angle) * 10,
           vy: Math.sin(angle) * 10
@@ -95,11 +260,27 @@
 
     // Customization
     function applyCustom() {
-      ammo = parseInt(document.getElementById('ammoInput').value, 10);
+      ammo = Math.min(20, parseInt(document.getElementById('ammoInput').value, 10));
       document.getElementById('ammo').textContent = ammo;
-      playerSpeed = parseInt(document.getElementById('speedInput').value, 10);
+      playerSpeed = Math.min(10, parseInt(document.getElementById('speedInput').value, 10));
       playerColor = document.getElementById('colorInput').value;
     }
+
+    // Damage display
+    let damageTexts = [];
+    function showDamage(x, y, amount) {
+      damageTexts.push({x, y, amount, timer: 30});
+    }
+    function drawDamageTexts() {
+      damageTexts.forEach(dt => {
+        ctx.fillStyle = "#fff";
+        ctx.font = "20px Arial";
+        ctx.fillText("-" + dt.amount, dt.x-10, dt.y-30 - (30-dt.timer));
+      });
+    }
+
+    // Player health display
+    document.getElementById('health').textContent = playerHealth;
 
     update();
   </script>
