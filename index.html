@@ -1,190 +1,484 @@
-<!DOCTYPE html>
-<html>
+GitHub Copilot Chat Assistant
+
+Here's a single-file index.html you can paste into your project. It includes:
+- Red ball player with a face
+- Rolling animation (ball rotates based on horizontal velocity)
+- Physics: gravity, friction, momentum
+- Controls: WASD + Arrow keys + Space to jump, Shift to dash
+- Double-jump, dash, moving platforms, collectibles (coins), score HUD
+- Camera follow with bounds
+- Pause (P) and Restart (R)
+- Touch controls for mobile (left/right/jump buttons)
+- Comments so you can tweak values easily
+
+Save this as index.html and open in a browser.
+
+```html
+<!doctype html>
+<html lang="en">
 <head>
-  <title>Plants vs. Zombies - HTML Prototype</title>
-  <style>
-    body { font-family: Arial; background: #4cbb17; }
-    #gameBoard {
-      display: grid;
-      grid-template-columns: repeat(9, 70px);
-      grid-template-rows: repeat(5, 90px);
-      gap: 2px;
-      background: #7ac142;
-      margin: 20px auto;
-      width: 640px;
-      height: 450px;
-      border: 4px solid #3b3b3b;
-      position: relative;
-    }
-    .cell {
-      border: 1px solid #3b3b3b;
-      background: rgba(255,255,255,0.05);
-      position: relative;
-    }
-    .plant, .zombie {
-      position: absolute;
-      width: 60px; height: 80px;
-      pointer-events: none;
-      transition: left 0.3s, top 0.3s;
-    }
-    .plant { z-index: 2; }
-    .zombie { z-index: 3; }
-    #plantBar {
-      margin: 20px auto;
-      width: 640px;
-      display: flex;
-      gap: 10px;
-      justify-content: center;
-    }
-    .plantIcon {
-      width: 60px; height: 60px;
-      border: 2px solid #3b3b3b;
-      background: #a3e635;
-      cursor: pointer;
-    }
-    #sunCounter {
-      font-size: 24px; font-weight: bold;
-      color: #fff; background: #fdfd96; padding: 5px 15px; border-radius: 15px;
-      margin-bottom: 10px;
-      display: inline-block;
-    }
-  </style>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Red Ball Platformer (Template)</title>
+<style>
+  html,body { height:100%; margin:0; background:#87CEEB; font-family:Arial,Helvetica,sans-serif; }
+  #gameCanvas { display:block; background: linear-gradient(#87CEEB, #bfe9ff); width:100%; height:100vh; }
+  /* Simple overlay for buttons on mobile */
+  .touch-controls {
+    position: absolute; left:0; right:0; bottom:16px; pointer-events:none;
+    display:flex; justify-content:space-between; padding:0 16px;
+  }
+  .touch-group { pointer-events:auto; display:flex; gap:8px; align-items:center; }
+  .touch-btn {
+    width:64px; height:64px; border-radius:12px; background:rgba(255,255,255,0.18);
+    display:flex; justify-content:center; align-items:center; color:white; font-weight:bold;
+    backdrop-filter: blur(4px); user-select:none;
+  }
+  .hud {
+    position:absolute; left:12px; top:12px; color:#222; text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+    background: rgba(255,255,255,0.6); padding:6px 10px; border-radius:8px; font-weight:bold;
+  }
+  .hint { position:absolute; right:12px; top:12px; color:#222; background:rgba(255,255,255,0.6);
+    padding:6px 10px; border-radius:8px; font-size:13px;
+  }
+</style>
 </head>
 <body>
-  <div id="sunCounter">Sun: <span id="sunValue">150</span></div>
-  <div id="plantBar">
-    <div class="plantIcon" data-plant="pea" title="Peashooter (100 sun)">🌱</div>
-    <div class="plantIcon" data-plant="sunflower" title="Sunflower (50 sun)">🌻</div>
-    <!-- Add more plants here -->
+<canvas id="gameCanvas"></canvas>
+<div class="hud" id="hud">Score: 0</div>
+<div class="hint">W/↑/Space jump • A/D ←/→ move • Shift dash • P pause • R restart</div>
+
+<!-- Touch controls -->
+<div class="touch-controls" id="touchControls" style="display:none;">
+  <div class="touch-group">
+    <div class="touch-btn" id="leftBtn">◀</div>
+    <div class="touch-btn" id="rightBtn">▶</div>
   </div>
-  <div id="gameBoard"></div>
-  <script>
-    const ROWS = 5, COLS = 9;
-    const gameBoard = document.getElementById('gameBoard');
-    let selectedPlant = null;
-    let sun = 150;
-    let plants = [];
-    let zombies = [];
-    let cellRects = [];
+  <div class="touch-group">
+    <div class="touch-btn" id="jumpBtn">⬆</div>
+  </div>
+</div>
 
-    // Initialize grid
-    for(let r=0; r<ROWS; r++) {
-      for(let c=0; c<COLS; c++) {
-        let cell = document.createElement('div');
-        cell.className = 'cell';
-        cell.dataset.row = r;
-        cell.dataset.col = c;
-        gameBoard.appendChild(cell);
-      }
+<script>
+/*
+Red Ball Platformer - single-file template
+Customize constants below.
+*/
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let W = canvas.width = innerWidth;
+let H = canvas.height = innerHeight;
+
+// Physics & player constants
+const GRAVITY = 2200;          // px/s^2
+const FRICTION_GROUND = 0.85;  // per second approximation (applied manually)
+const AIR_DRAG = 0.995;
+const MOVE_ACCEL = 2200;       // px/s^2
+const MAX_SPEED = 420;         // px/s
+const JUMP_VELOCITY = 720;     // px/s
+const DASH_VELOCITY = 900;     // px/s applied instantly
+const DASH_COOLDOWN = 0.6;     // seconds
+const PLAYER_RADIUS = 28;
+const ROLL_FACTOR = 0.01;      // rotation per px moved (tweak for speed of rolling)
+
+let lastTime = performance.now()/1000;
+let paused = false;
+let score = 0;
+
+// Camera
+const camera = { x:0, y:0, w:W, h:H };
+
+// Input state
+const keys = {};
+let touchState = { left:false, right:false, jump:false };
+
+// Player
+const player = {
+  x: 160,
+  y: 300,
+  vx: 0,
+  vy: 0,
+  r: PLAYER_RADIUS,
+  onGround: false,
+  jumpsLeft: 2,
+  angle: 0,
+  canDash: true,
+  lastDash: -999
+};
+
+// Platforms
+const platforms = [
+  { x: -2000, y: 520, w: 4000, h: 48, vx:0, vy:0, type:'static' }, // ground
+  { x: 380, y: 420, w: 200, h: 22, vx:0, vy:0 },
+  { x: 700, y: 340, w: 140, h: 22, vx:0, vy:0 },
+  { x: 950, y: 280, w: 160, h: 22, vx:-80, vy:0, type:'moving', rangeX:100 },
+  { x: 1260, y: 220, w: 120, h: 22, vx:0, vy:0 },
+  { x: 1500, y: 380, w: 220, h: 22, vx:0, vy:0 },
+  { x: 1900, y: 320, w: 220, h: 22, vx:0, vy:0 },
+  // add more platforms or generate procedurally as needed
+];
+
+// For moving platforms we keep original positions
+platforms.forEach(p => { p.ox = p.x; p.oy = p.y; });
+
+// Collectibles
+const coins = [
+  { x: 420, y: 380, r:10, collected:false },
+  { x: 760, y: 300, r:10, collected:false },
+  { x: 1010, y: 240, r:10, collected:false },
+  { x: 1290, y: 180, r:10, collected:false },
+  { x: 1580, y: 340, r:10, collected:false },
+  { x: 1960, y: 280, r:10, collected:false },
+];
+
+// Resize handling
+function onResize() {
+  W = canvas.width = innerWidth;
+  H = canvas.height = innerHeight;
+  camera.w = W; camera.h = H;
+}
+addEventListener('resize', onResize);
+
+// Input handling
+addEventListener('keydown', e => {
+  keys[e.code] = true;
+  if (e.code === 'KeyP') paused = !paused;
+  if (e.code === 'KeyR') resetGame();
+  // prevent space scroll
+  if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
+});
+addEventListener('keyup', e => { keys[e.code] = false; });
+
+function isLeft() {
+  return keys['KeyA'] || keys['ArrowLeft'] || touchState.left;
+}
+function isRight() {
+  return keys['KeyD'] || keys['ArrowRight'] || touchState.right;
+}
+function pressJump() {
+  return keys['KeyW'] || keys['Space'] || keys['ArrowUp'] || touchState.jump;
+}
+
+// Touch controls UI
+const tControls = document.getElementById('touchControls');
+function setupTouchControls() {
+  // Show touch controls if device has touch OR if width is narrow
+  if ('ontouchstart' in window || innerWidth < 900) {
+    tControls.style.display = 'flex';
+  }
+  const leftBtn = document.getElementById('leftBtn');
+  const rightBtn = document.getElementById('rightBtn');
+  const jumpBtn = document.getElementById('jumpBtn');
+
+  function bindTouch(el, start, end) {
+    el.addEventListener('touchstart', e => { start(); e.preventDefault(); }, {passive:false});
+    el.addEventListener('touchend', e => { end(); e.preventDefault(); }, {passive:false});
+    el.addEventListener('mousedown', e => { start(); e.preventDefault(); });
+    el.addEventListener('mouseup', e => { end(); e.preventDefault(); });
+    el.addEventListener('mouseleave', e => { end(); });
+  }
+
+  bindTouch(leftBtn, () => touchState.left = true, () => touchState.left = false);
+  bindTouch(rightBtn, () => touchState.right = true, () => touchState.right = false);
+  bindTouch(jumpBtn, () => {
+    // emulate a quick jump press
+    touchState.jump = true;
+    setTimeout(()=> touchState.jump = false, 150);
+  }, () => {});
+}
+setupTouchControls();
+
+// Collision helpers: circle vs rect
+function circleRectCollision(cx, cy, r, rx, ry, rw, rh) {
+  const closestX = Math.max(rx, Math.min(cx, rx + rw));
+  const closestY = Math.max(ry, Math.min(cy, ry + rh));
+  const dx = cx - closestX;
+  const dy = cy - closestY;
+  return { hit: dx*dx + dy*dy <= r*r, dx, dy, closestX, closestY };
+}
+
+function update(dt) {
+  if (paused) return;
+
+  // controls
+  let move = 0;
+  if (isLeft()) move -= 1;
+  if (isRight()) move += 1;
+
+  // horizontal acceleration
+  player.vx += move * MOVE_ACCEL * dt;
+
+  // limit speed
+  if (player.vx > MAX_SPEED) player.vx = MAX_SPEED;
+  if (player.vx < -MAX_SPEED) player.vx = -MAX_SPEED;
+
+  // dash (Shift)
+  if ((keys['ShiftLeft'] || keys['ShiftRight']) && player.canDash && (performance.now()/1000 - player.lastDash) > 0.01) {
+    // simple dash impulse
+    const dir = (move !== 0) ? Math.sign(move) : (player.vx === 0 ? 1 : Math.sign(player.vx));
+    player.vx = dir * DASH_VELOCITY;
+    player.lastDash = performance.now()/1000;
+    player.canDash = false;
+    setTimeout(()=> player.canDash = true, DASH_COOLDOWN * 1000);
+  }
+
+  // gravity
+  player.vy += GRAVITY * dt;
+
+  // apply drag
+  if (player.onGround) {
+    // ground friction approximation
+    player.vx *= Math.pow(FRICTION_GROUND, dt*60/16);
+  } else {
+    player.vx *= AIR_DRAG;
+  }
+
+  // jumping
+  if (pressJump() && !player._jumpPressedLast) {
+    if (player.jumpsLeft > 0) {
+      player.vy = -JUMP_VELOCITY;
+      player.jumpsLeft--;
+      player.onGround = false;
     }
+  }
+  player._jumpPressedLast = pressJump();
 
-    // Get grid cell positions for placing elements
-    function updateCellRects() {
-      cellRects = [];
-      let cells = document.querySelectorAll('.cell');
-      cells.forEach(cell => {
-        cellRects.push(cell.getBoundingClientRect());
-      });
+  // integrate
+  player.x += player.vx * dt;
+  player.y += player.vy * dt;
+
+  // simple world bounds
+  if (player.y > 4000) {
+    // fell out of world
+    resetPlayer();
+  }
+
+  // platforms movement update
+  platforms.forEach(p => {
+    if (p.type === 'moving') {
+      // simple oscillation around original position
+      p.x = p.ox + Math.sin(performance.now()/1000 * 1.2) * (p.rangeX || 80);
     }
+  });
 
-    window.onload = updateCellRects;
-    window.onresize = updateCellRects;
+  // collision detection / resolution
+  player.onGround = false;
+  for (const p of platforms) {
+    const c = circleRectCollision(player.x, player.y, player.r, p.x, p.y, p.w, p.h);
+    if (c.hit) {
+      // We will resolve by moving player out along smallest overlap direction.
+      // Compute overlap distances
+      const overlapX = player.r - Math.abs(c.dx);
+      const overlapY = player.r - Math.abs(c.dy);
 
-    // Plant selection
-    document.querySelectorAll('.plantIcon').forEach(icon => {
-      icon.onclick = function() {
-        selectedPlant = this.dataset.plant;
-        document.querySelectorAll('.plantIcon').forEach(i => i.style.background = '#a3e635');
-        this.style.background = '#fdfd96';
-      };
-    });
-
-    // Plant costs
-    const plantData = {
-      pea: { cost: 100, emoji: '🌱' },
-      sunflower: { cost: 50, emoji: '🌻' }
-    };
-
-    // Place plant
-    gameBoard.addEventListener('click', function(e) {
-      if(!selectedPlant) return;
-      if(e.target.classList.contains('cell')) {
-        let row = +e.target.dataset.row, col = +e.target.dataset.col;
-        let exists = plants.find(p => p.row === row && p.col === col);
-        if(exists) return;
-        let cost = plantData[selectedPlant].cost;
-        if(sun < cost) return;
-        sun -= cost;
-        document.getElementById('sunValue').textContent = sun;
-        let plant = { type: selectedPlant, row, col, hp: 5 };
-        plants.push(plant);
-        renderPlant(plant);
-      }
-    });
-
-    // Render plant
-    function renderPlant(p) {
-      let cell = document.querySelector(`.cell[data-row="${p.row}"][data-col="${p.col}"]`);
-      let el = document.createElement('div');
-      el.className = 'plant';
-      el.style.left = '5px';
-      el.style.top = '5px';
-      el.textContent = plantData[p.type].emoji;
-      cell.appendChild(el);
-      p.el = el;
-    }
-
-    // Spawn zombies randomly
-    setInterval(function() {
-      let row = Math.floor(Math.random() * ROWS);
-      let zombie = { row, col: COLS-1, hp: 10 };
-      zombies.push(zombie);
-      renderZombie(zombie);
-    }, 4000);
-
-    // Render zombie
-    function renderZombie(z) {
-      let cell = document.querySelector(`.cell[data-row="${z.row}"][data-col="${z.col}"]`);
-      let el = document.createElement('div');
-      el.className = 'zombie';
-      el.style.left = '5px';
-      el.style.top = '5px';
-      el.textContent = '🧟';
-      cell.appendChild(el);
-      z.el = el;
-    }
-
-    // Move zombies
-    setInterval(function() {
-      zombies.forEach(z => {
-        if(z.col > 0) {
-          // Check for plant in next cell
-          let hit = plants.find(p => p.row === z.row && p.col === z.col-1);
-          if(hit) {
-            hit.hp -= 1;
-            if(hit.hp <= 0) {
-              hit.el.remove();
-              plants = plants.filter(p => p !== hit);
-            }
-          } else {
-            z.col -= 1;
-            let cell = document.querySelector(`.cell[data-row="${z.row}"][data-col="${z.col}"]`);
-            cell.appendChild(z.el);
-          }
+      // Determine whether vertical or horizontal resolution is smaller
+      if (overlapY < overlapX) {
+        // Resolve vertically
+        if (player.y < p.y) {
+          // landed on top
+          player.y = p.y - player.r;
+          player.vy = 0;
+          player.onGround = true;
+          player.jumpsLeft = 2; // reset double jump on ground
         } else {
-          // Zombie reached house
-          alert("A zombie got through! Game Over!");
-          location.reload();
+          // hit from below
+          player.y = p.y + p.h + player.r + 0.1;
+          player.vy = Math.max(0, player.vy);
         }
-      });
-    }, 1200);
+      } else {
+        // Resolve horizontally
+        if (player.x < p.x) {
+          player.x = p.x - player.r - 0.1;
+        } else {
+          player.x = p.x + p.w + player.r + 0.1;
+        }
+        player.vx = 0;
+      }
+    }
+  }
 
-    // Sun generation
-    setInterval(function() {
-      sun += 25;
-      document.getElementById('sunValue').textContent = sun;
-    }, 4000);
+  // coin collection
+  for (const coin of coins) {
+    if (coin.collected) continue;
+    const dx = player.x - coin.x;
+    const dy = player.y - coin.y;
+    if (dx*dx + dy*dy < (player.r + coin.r)*(player.r + coin.r)) {
+      coin.collected = true;
+      score += 1;
+      document.getElementById('hud').textContent = 'Score: ' + score;
+    }
+  }
 
-  </script>
+  // update rolling angle based on horizontal movement
+  // angle change ~ distance / radius
+  player.angle -= (player.vx * ROLL_FACTOR) * dt * 60; // scaled for feel
+
+  // camera follow (smooth)
+  const targetCamX = player.x - W/2;
+  const targetCamY = player.y - H/2;
+  camera.x += (targetCamX - camera.x) * Math.min(1, 8*dt);
+  camera.y += (targetCamY - camera.y) * Math.min(1, 8*dt);
+
+  // clamp camera to world bounds (optional)
+  camera.x = Math.max(-1000, Math.min(camera.x, 3000)); // tweak world bounds as needed
+  camera.y = Math.max(-500, Math.min(camera.y, 2500));
+}
+
+function draw() {
+  // clear with sky gradient
+  ctx.clearRect(0,0,W,H);
+
+  // create scene transform based on camera
+  ctx.save();
+  ctx.translate(-Math.round(camera.x), -Math.round(camera.y));
+
+  // background parallax hills
+  drawBackground();
+
+  // platforms
+  for (const p of platforms) drawPlatform(p);
+
+  // coins
+  for (const c of coins) if (!c.collected) drawCoin(c);
+
+  // draw player (ball with face, rotated by angle for rolling)
+  drawPlayer(player);
+
+  ctx.restore();
+
+  // UI overlays (if needed)
+  if (paused) {
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 36px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('PAUSED', W/2, H/2);
+  }
+}
+
+// Draw helpers
+function drawBackground() {
+  // simple parallax hills
+  const baseY = 640;
+  ctx.save();
+  ctx.fillStyle = '#7ec850';
+  for (let i=-2;i<6;i++) {
+    const hx = i * 600 - (camera.x*0.2 % 600);
+    const hy = baseY + Math.sin(i + performance.now()/2000)*20;
+    ctx.beginPath();
+    ctx.ellipse(hx, hy, 400, 140, 0, 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawPlatform(p) {
+  ctx.save();
+  ctx.fillStyle = '#5b3a2e';
+  ctx.fillRect(p.x, p.y, p.w, p.h);
+  // top highlight
+  ctx.fillStyle = '#7b523f';
+  ctx.fillRect(p.x, p.y, p.w, Math.min(6, p.h));
+  ctx.restore();
+}
+
+function drawCoin(c) {
+  ctx.save();
+  ctx.translate(c.x, c.y);
+  // shimmer
+  ctx.fillStyle = 'gold';
+  ctx.beginPath();
+  ctx.ellipse(0,0,c.r,c.r*0.9,0,0,Math.PI*2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.beginPath();
+  ctx.ellipse(-c.r*0.35, -c.r*0.35, c.r*0.35, c.r*0.25, 0,0,Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawPlayer(p) {
+  ctx.save();
+  ctx.translate(p.x, p.y);
+  ctx.rotate(p.angle);
+
+  // ball body
+  ctx.beginPath();
+  ctx.fillStyle = '#e53935'; // red
+  ctx.arc(0, 0, p.r, 0, Math.PI*2);
+  ctx.fill();
+
+  // subtle shading
+  const grad = ctx.createRadialGradient(-p.r*0.3, -p.r*0.5, p.r*0.1, 0,0,p.r);
+  grad.addColorStop(0, 'rgba(255,255,255,0.45)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.15)');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(-p.r*0.3, -p.r*0.5, p.r*0.9, 0, Math.PI*2);
+  ctx.fill();
+
+  // face: eyes and mouth (rotate with ball so it visually rolls)
+  // eyes
+  ctx.fillStyle = 'white';
+  const eyeY = -6;
+  const eyeX = 8;
+  ctx.beginPath(); ctx.ellipse(-eyeX, eyeY, 6, 8, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(eyeX, eyeY, 6, 8, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(-eyeX, eyeY, 3.2, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(eyeX, eyeY, 3.2, 0, Math.PI*2); ctx.fill();
+
+  // eyebrows (gives more personality, they rotate too)
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(-eyeX-6, eyeY-10); ctx.quadraticCurveTo(-eyeX, eyeY-14, -eyeX+6, eyeY-10); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(eyeX-6, eyeY-10); ctx.quadraticCurveTo(eyeX, eyeY-14, eyeX+6, eyeY-10); ctx.stroke();
+
+  // mouth (simple smile)
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(0, 6, 10, 0.15*Math.PI, 0.85*Math.PI);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+function loop() {
+  const now = performance.now()/1000;
+  const dt = Math.min(0.033, now - lastTime); // cap dt to avoid big jumps
+  lastTime = now;
+  update(dt);
+  draw();
+  requestAnimationFrame(loop);
+}
+
+function resetPlayer() {
+  player.x = 160; player.y = 300; player.vx = 0; player.vy = 0; player.angle = 0;
+  player.jumpsLeft = 2; player.canDash = true;
+}
+
+function resetGame() {
+  score = 0;
+  coins.forEach(c => c.collected = false);
+  document.getElementById('hud').textContent = 'Score: 0';
+  resetPlayer();
+}
+
+// initialize
+resetGame();
+requestAnimationFrame(loop);
+
+// expose some debug tuning via console
+window.game = { player, platforms, coins, resetGame };
+
+</script>
 </body>
 </html>
+```
+
+Would you like me to push this file to your repository DeadShark2213/Babyclick (main branch) or create a new branch? If so, tell me which branch and commit message and I can push it for you.
