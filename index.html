@@ -1,19 +1,9 @@
-Got it — I updated the single-file index.html with:
-- Slower player (reduced accel, max speed, jump, dash)
-- Rolling uses realistic rotation (angle changes by -distance / radius)
-- Slower parallax and moving-platform motion
-- Full level (~0 → 4800px) with many platforms, moving platforms, coins and a finish flag
-- Level complete overlay and restart (R)
-
-Paste the following into your project (replace your existing index.html):
-
-```html
 <!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Red Ball Platformer - Full Level</title>
+<title>Red Ball Platformer - Full Level (Monsters & Health)</title>
 <style>
   html,body { height:100%; margin:0; background:#87CEEB; font-family:Arial,Helvetica,sans-serif; }
   #gameCanvas { display:block; background: linear-gradient(#87CEEB, #bfe9ff); width:100%; height:100vh; }
@@ -32,14 +22,21 @@ Paste the following into your project (replace your existing index.html):
     position:absolute; left:12px; top:12px; color:#222; text-shadow: 0 1px 0 rgba(255,255,255,0.6);
     background: rgba(255,255,255,0.6); padding:6px 10px; border-radius:8px; font-weight:bold;
   }
+  #health {
+    position:absolute; left:140px; top:12px; color:#222; text-shadow: 0 1px 0 rgba(255,255,255,0.6);
+    background: rgba(255,255,255,0.6); padding:6px 10px; border-radius:8px; font-weight:bold;
+    display:flex; gap:6px; align-items:center;
+  }
   .hint { position:absolute; right:12px; top:12px; color:#222; background:rgba(255,255,255,0.6);
     padding:6px 10px; border-radius:8px; font-size:13px;
   }
+  .heart { width:22px; height:22px; display:inline-block; }
 </style>
 </head>
 <body>
 <canvas id="gameCanvas"></canvas>
 <div class="hud" id="hud">Score: 0</div>
+<div id="health" aria-hidden="true"></div>
 <div class="hint">W/↑/Space jump • A/D ←/→ move • Shift dash • P pause • R restart</div>
 
 <!-- Touch controls -->
@@ -55,8 +52,12 @@ Paste the following into your project (replace your existing index.html):
 
 <script>
 /*
-Red Ball Platformer - updated: slower ball, slower animation, full level
-Tweak constants below.
+Red Ball Platformer - added slow grey square monsters with flop animation, angry faces, and 3-heart health bar.
+Behavior (defaults):
+ - Monsters patrol slowly around their base position.
+ - If player touches a harmful monster, player loses a heart and becomes briefly invulnerable.
+ - The monster "flops" (rotates to lie on its side and becomes harmless) for a few seconds, then recovers.
+ - Hearts shown in top-left; when health reaches 0 the game shows YOU DIED and you can press R to restart.
 */
 
 const canvas = document.getElementById('gameCanvas');
@@ -84,6 +85,7 @@ let lastTime = performance.now()/1000;
 let paused = false;
 let score = 0;
 let levelComplete = false;
+let gameOver = false;
 
 // Camera
 const camera = { x:0, y:0, w:W, h:H };
@@ -103,7 +105,10 @@ const player = {
   jumpsLeft: 2,
   angle: 0,
   canDash: true,
-  lastDash: -999
+  lastDash: -999,
+  health: 3,
+  invulnerable: false,
+  invulnTimer: 0
 };
 
 // Full-level platforms (spaced across world)
@@ -145,6 +150,68 @@ makeCoins();
 // Finish flag
 const flag = { x: WORLD_WIDTH - 200, y: 160, w: 16, h: 160, reached:false };
 
+// Monsters (square enemies)
+const monsters = [];
+function makeMonsters() {
+  monsters.length = 0;
+  // positions spaced across the world
+  const mpos = [
+    {x:520, y:380},
+    {x:900, y:300},
+    {x:1240, y:160},
+    {x:1640, y:340},
+    {x:1980, y:280},
+    {x:2320, y:220},
+    {x:2560, y:300},
+    {x:2920, y:260},
+    {x:3260, y:220},
+    {x:3560, y:320},
+    {x:3860, y:260},
+    {x:4200, y:300},
+    {x:4520, y:260}
+  ];
+  for (const p of mpos) {
+    const size = 56;
+    monsters.push({
+      x: p.x,
+      y: p.y - size/2, // place on platform level
+      ox: p.x,
+      oy: p.y - size/2,
+      size,
+      rangeX: 30 + Math.random()*60,
+      speed: 0.35 + Math.random()*0.25, // slow
+      rotation: 0, // current rotation
+      targetRotation: 0,
+      flopped: false,
+      flopTime: 0,
+      flopDuration: 3.0,
+      harmful: true,
+      faceOffset: (Math.random()-0.5)*6
+    });
+  }
+}
+makeMonsters();
+
+// Health DOM
+const healthEl = document.getElementById('health');
+function updateHealthDOM() {
+  healthEl.innerHTML = '';
+  for (let i=0;i<3;i++) {
+    const alive = i < Math.max(0, Math.min(3, player.health));
+    const span = document.createElement('span');
+    span.className = 'heart';
+    span.innerHTML = alive ? heartSVG(true) : heartSVG(false);
+    healthEl.appendChild(span);
+  }
+}
+function heartSVG(full) {
+  if (full) {
+    return '<svg viewBox="0 0 24 24" width="22" height="22" xmlns="http://www.w3.org/2000/svg"><path d="M12 21s-7.5-4.5-9.2-7.2C0.7 11.7 2 8.9 5 7.5 7 6.5 8.6 7.2 12 10c3.4-2.8 5-3.5 7-2.5 3 1.4 4.3 4.2 2.2 6.3C19.5 16.5 12 21 12 21z" fill="#e53935"/></svg>';
+  } else {
+    return '<svg viewBox="0 0 24 24" width="22" height="22" xmlns="http://www.w3.org/2000/svg"><path d="M12 21s-7.5-4.5-9.2-7.2C0.7 11.7 2 8.9 5 7.5 7 6.5 8.6 7.2 12 10c3.4-2.8 5-3.5 7-2.5 3 1.4 4.3 4.2 2.2 6.3C19.5 16.5 12 21 12 21z" fill="#bdbdbd"/></svg>';
+  }
+}
+
 // Resize handling
 function onResize() {
   W = canvas.width = innerWidth;
@@ -158,7 +225,6 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'KeyP') paused = !paused;
   if (e.code === 'KeyR') resetGame();
-  // prevent space arrow scrolling
   if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
 });
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -210,6 +276,9 @@ function circleRectCollision(cx, cy, r, rx, ry, rw, rh) {
 function update(dt) {
   if (paused) return;
   if (levelComplete) return;
+  if (gameOver) return;
+
+  const now = performance.now()/1000;
 
   // controls
   let move = 0;
@@ -258,7 +327,10 @@ function update(dt) {
   player.y += player.vy * dt;
 
   // world bounds (fall)
-  if (player.y > WORLD_HEIGHT + 200) resetPlayer();
+  if (player.y > WORLD_HEIGHT + 200) {
+    damagePlayer();
+    resetPlayer();
+  }
 
   // platforms movement update (slower motion)
   platforms.forEach(p => {
@@ -267,7 +339,30 @@ function update(dt) {
     }
   });
 
-  // collision detection / resolution
+  // monsters movement & state update
+  for (const m of monsters) {
+    if (!m.flopped) {
+      // patrol slowly using sin
+      m.x = m.ox + Math.sin(now * m.speed) * m.rangeX;
+      m.targetRotation = 0;
+    } else {
+      // flopped: stay and lie on the side
+      m.targetRotation = Math.PI * 0.5; // 90 degrees
+    }
+
+    // smooth rotation toward target
+    const diff = m.targetRotation - m.rotation;
+    m.rotation += diff * Math.min(1, 8 * dt);
+
+    // recover after flopDuration
+    if (m.flopped && (now - m.flopTime) > m.flopDuration) {
+      m.flopped = false;
+      m.harmful = true;
+      m.targetRotation = 0;
+    }
+  }
+
+  // collision detection / resolution with platforms
   player.onGround = false;
   for (const p of platforms) {
     const c = circleRectCollision(player.x, player.y, player.r, p.x, p.y, p.w, p.h);
@@ -296,6 +391,27 @@ function update(dt) {
           player.x = p.x + p.w + player.r + 0.1;
         }
         player.vx = 0;
+      }
+    }
+  }
+
+  // monster collisions
+  for (const m of monsters) {
+    const rx = m.x - m.size/2;
+    const ry = m.y - m.size/2;
+    const c = circleRectCollision(player.x, player.y, player.r, rx, ry, m.size, m.size);
+    if (c.hit) {
+      if (m.harmful && !m.flopped && !player.invulnerable) {
+        // player takes damage and monster flops
+        damagePlayer();
+        m.flopped = true;
+        m.flopTime = now;
+        m.harmful = false;
+        // apply small knockback
+        const dir = (player.x < m.x) ? -1 : 1;
+        player.vx = -dir * 180;
+      } else {
+        // no effect if monster is flopped or player is invulnerable
       }
     }
   }
@@ -332,6 +448,27 @@ function update(dt) {
     levelComplete = true;
     paused = true;
   }
+
+  // invulnerability timer update
+  if (player.invulnerable) {
+    player.invulnTimer -= dt;
+    if (player.invulnTimer <= 0) {
+      player.invulnerable = false;
+      player.invulnTimer = 0;
+    }
+  }
+}
+
+function damagePlayer() {
+  if (player.invulnerable || gameOver) return;
+  player.health = Math.max(0, player.health - 1);
+  player.invulnerable = true;
+  player.invulnTimer = 1.0; // 1s invulnerability
+  updateHealthDOM();
+  if (player.health <= 0) {
+    gameOver = true;
+    paused = true;
+  }
 }
 
 function draw() {
@@ -346,6 +483,9 @@ function draw() {
   // platforms
   for (const p of platforms) drawPlatform(p);
 
+  // monsters
+  for (const m of monsters) drawMonster(m);
+
   // coins
   for (const c of coins) if (!c.collected) drawCoin(c);
 
@@ -358,7 +498,7 @@ function draw() {
   ctx.restore();
 
   // overlays
-  if (paused && !levelComplete) {
+  if (paused && !levelComplete && !gameOver) {
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
     ctx.fillRect(0,0,W,H);
     ctx.fillStyle = 'white';
@@ -374,6 +514,17 @@ function draw() {
     ctx.font = 'bold 44px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('LEVEL COMPLETE', W/2, H/2 - 20);
+    ctx.font = '20px Arial';
+    ctx.fillText('Press R to restart', W/2, H/2 + 20);
+  }
+
+  if (gameOver) {
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(0,0,W,H);
+    ctx.fillStyle = 'white';
+    ctx.font = 'bold 44px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('YOU DIED', W/2, H/2 - 20);
     ctx.font = '20px Arial';
     ctx.fillText('Press R to restart', W/2, H/2 + 20);
   }
@@ -438,7 +589,7 @@ function drawPlayer(p) {
 
   // body
   ctx.beginPath();
-  ctx.fillStyle = '#e53935';
+  ctx.fillStyle = p.invulnerable ? '#ff8a80' : '#e53935';
   ctx.arc(0, 0, p.r, 0, Math.PI*2);
   ctx.fill();
 
@@ -478,6 +629,70 @@ function drawPlayer(p) {
   ctx.restore();
 }
 
+function drawMonster(m) {
+  ctx.save();
+  ctx.translate(m.x, m.y);
+
+  // rotate toward current rotation value (smooth)
+  ctx.rotate(m.rotation);
+
+  // when flopped, flatten slightly
+  const isFlopped = m.flopped || Math.abs(m.rotation - Math.PI/2) < 0.02;
+  const w = m.size;
+  const h = isFlopped ? m.size * 0.6 : m.size;
+
+  // body (grey)
+  ctx.fillStyle = '#9e9e9e';
+  ctx.fillRect(-w/2, -h/2, w, h);
+  // border
+  ctx.strokeStyle = '#666';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-w/2, -h/2, w, h);
+
+  // angry face: eyebrows angled, eyes small, mouth angry
+  // Eyes
+  const eyeY = -h*0.18;
+  const eyeX = w*0.18 + (m.faceOffset||0);
+  ctx.fillStyle = '#222';
+  // left eye
+  ctx.beginPath();
+  ctx.ellipse(-eyeX, eyeY, Math.max(2, w*0.07), Math.max(2, w*0.06), 0, 0, Math.PI*2);
+  ctx.fill();
+  // right eye
+  ctx.beginPath();
+  ctx.ellipse(eyeX, eyeY, Math.max(2, w*0.07), Math.max(2, w*0.06), 0, 0, Math.PI*2);
+  ctx.fill();
+
+  // eyebrows (angry)
+  ctx.strokeStyle = '#222';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-eyeX-8, eyeY-10);
+  ctx.quadraticCurveTo(-eyeX, eyeY-6, -eyeX+8, eyeY-12);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(eyeX+8, eyeY-10);
+  ctx.quadraticCurveTo(eyeX, eyeY-6, eyeX-8, eyeY-12);
+  ctx.stroke();
+
+  // mouth: if flopped show small flat mouth, else angry frown
+  ctx.strokeStyle = '#4a4a4a';
+  ctx.lineWidth = 3;
+  if (isFlopped) {
+    ctx.beginPath();
+    ctx.moveTo(-w*0.18, h*0.14);
+    ctx.lineTo(w*0.18, h*0.14);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(-w*0.18, h*0.16);
+    ctx.quadraticCurveTo(0, h*0.06, w*0.18, h*0.16);
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
 function loop() {
   const now = performance.now()/1000;
   const dt = Math.min(0.033, now - lastTime);
@@ -490,6 +705,7 @@ function loop() {
 function resetPlayer() {
   player.x = 160; player.y = 300; player.vx = 0; player.vy = 0; player.angle = 0;
   player.jumpsLeft = 2; player.canDash = true;
+  player.invulnerable = false; player.invulnTimer = 0;
 }
 
 function resetGame() {
@@ -497,7 +713,11 @@ function resetGame() {
   levelComplete = false;
   paused = false;
   flag.reached = false;
+  gameOver = false;
   makeCoins();
+  makeMonsters();
+  player.health = 3;
+  updateHealthDOM();
   document.getElementById('hud').textContent = 'Score: 0';
   resetPlayer();
 }
@@ -507,9 +727,7 @@ resetGame();
 requestAnimationFrame(loop);
 
 // debug
-window.game = { player, platforms, coins, flag, resetGame };
+window.game = { player, platforms, coins, flag, monsters, resetGame };
 </script>
 </body>
 </html>
-```
-
