@@ -1,3 +1,5 @@
+GitHub Copilot Chat Assistant — I updated your index.html to add a plane at the start that the player can jump into and fly using the arrow keys, plus a simple propeller flying animation. Press E to exit the plane. Below is the full revised file — replace your current index.html with this.
+
 <!doctype html>
 <html lang="en">
 <head>
@@ -37,7 +39,7 @@
 <canvas id="gameCanvas"></canvas>
 <div class="hud" id="hud">Score: 0</div>
 <div id="health" aria-hidden="true"></div>
-<div class="hint">W/↑/Space jump • A/D ←/→ move • Shift dash • P pause • R restart</div>
+<div class="hint" id="hint">W/↑/Space jump • A/D ←/→ move • Shift dash • Arrow keys fly plane • E exit plane • P pause • R restart</div>
 
 <!-- Touch controls -->
 <div class="touch-controls" id="touchControls" style="display:none;">
@@ -52,12 +54,8 @@
 
 <script>
 /*
-Red Ball Platformer - added slow grey square monsters with flop animation, angry faces, and 3-heart health bar.
-Behavior (defaults):
- - Monsters patrol slowly around their base position.
- - If player touches a harmful monster, player loses a heart and becomes briefly invulnerable.
- - The monster "flops" (rotates to lie on its side and becomes harmless) for a few seconds, then recovers.
- - Hearts shown in top-left; when health reaches 0 the game shows YOU DIED and you can press R to restart.
+Red Ball Platformer - plane added at start. Jump into plane to occupy it and fly with arrow keys.
+Press E to exit plane. Plane has a simple propeller animation and bobbing while idle.
 */
 
 const canvas = document.getElementById('gameCanvas');
@@ -108,7 +106,22 @@ const player = {
   lastDash: -999,
   health: 3,
   invulnerable: false,
-  invulnTimer: 0
+  invulnTimer: 0,
+  inPlane: false
+};
+
+// Plane entity (placed near the beginning)
+const plane = {
+  x: 340, y: 190, w: 180, h: 48,
+  ox: 340, oy: 190,
+  vx: 0, vy: 0,
+  propRot: 0,
+  occupied: false,
+  acc: 1400,
+  maxSpeed: 420,
+  drag: 0.985,
+  bobAmp: 6,
+  bobSpeed: 1.6
 };
 
 // Full-level platforms (spaced across world)
@@ -285,7 +298,54 @@ function update(dt) {
   if (isLeft()) move -= 1;
   if (isRight()) move += 1;
 
-  // horizontal acceleration
+  // If player is in plane, handle plane flight controls
+  if (plane.occupied) {
+    // arrow keys control plane
+    if (keys['ArrowLeft']) plane.vx -= plane.acc * dt;
+    if (keys['ArrowRight']) plane.vx += plane.acc * dt;
+    if (keys['ArrowUp']) plane.vy -= plane.acc * dt * 0.9; // lift
+    if (keys['ArrowDown']) plane.vy += plane.acc * dt * 0.9; // descend
+
+    // clamp
+    plane.vx = Math.max(-plane.maxSpeed, Math.min(plane.maxSpeed, plane.vx));
+    plane.vy = Math.max(-plane.maxSpeed, Math.min(plane.maxSpeed, plane.vy));
+
+    // drag
+    plane.vx *= Math.pow(plane.drag, dt*60/16);
+    plane.vy *= Math.pow(plane.drag, dt*60/16);
+
+    // integrate
+    plane.x += plane.vx * dt;
+    plane.y += plane.vy * dt;
+
+    // keep plane inside world
+    plane.x = Math.max(0, Math.min(plane.x, WORLD_WIDTH - plane.w));
+    plane.y = Math.max(-500, Math.min(plane.y, WORLD_HEIGHT - plane.h));
+
+    // propeller rotation speeds up while moving
+    plane.propRot += (Math.abs(plane.vx) + Math.abs(plane.vy)) * 0.02 + 12 * dt;
+
+    // allow exit with E key: place player next to plane
+    if (keys['KeyE']) {
+      plane.occupied = false;
+      player.inPlane = false;
+      // put player to the right of the plane when exiting, or left if near right edge
+      const exitX = Math.min(WORLD_WIDTH - 100, plane.x + plane.w + player.r + 6);
+      player.x = exitX;
+      player.y = plane.y + plane.h/2 + player.r + 4;
+      player.vx = plane.vx * 0.6;
+      player.vy = plane.vy * 0.6;
+      player.invulnerable = true;
+      player.invulnTimer = 0.6;
+      // small delay before plane can be reoccupied to avoid instant reentry
+      setTimeout(()=>{}, 50);
+    }
+
+    // while in plane, sync camera follow to plane and do not apply player physics
+    return; // skip the rest of player physics while piloting
+  }
+
+  // horizontal acceleration (player on foot)
   player.vx += move * MOVE_ACCEL * dt;
 
   // limit speed
@@ -313,10 +373,20 @@ function update(dt) {
 
   // jumping (double jump)
   if (pressJump() && !player._jumpPressedLast) {
-    if (player.jumpsLeft > 0) {
-      player.vy = -JUMP_VELOCITY;
-      player.jumpsLeft--;
-      player.onGround = false;
+    // if close to plane and jump pressed, enter plane
+    const cockpitRect = { x: plane.x + plane.w*0.15, y: plane.y - plane.h*0.5, w: plane.w*0.7, h: plane.h*1.5 };
+    const enterCheck = circleRectCollision(player.x, player.y, player.r, cockpitRect.x, cockpitRect.y, cockpitRect.w, cockpitRect.h);
+    if (enterCheck.hit && !plane.occupied) {
+      plane.occupied = true;
+      player.inPlane = true;
+      // snap player visually inside plane; camera will follow plane
+      // no need to change player position; we hide the player while in plane
+    } else {
+      if (player.jumpsLeft > 0) {
+        player.vy = -JUMP_VELOCITY;
+        player.jumpsLeft--;
+        player.onGround = false;
+      }
     }
   }
   player._jumpPressedLast = pressJump();
@@ -432,9 +502,11 @@ function update(dt) {
   const dist = player.x - oldX;
   player.angle += -dist / Math.max(1, player.r);
 
-  // camera follow (smooth)
-  const targetCamX = player.x - W/2;
-  const targetCamY = player.y - H/2;
+  // camera follow (smooth) - follow plane if occupied, otherwise player
+  const followX = plane.occupied ? (plane.x + plane.w/2) : player.x;
+  const followY = plane.occupied ? (plane.y + plane.h/2) : player.y;
+  const targetCamX = followX - W/2;
+  const targetCamY = followY - H/2;
   camera.x += (targetCamX - camera.x) * Math.min(1, 6*dt);
   camera.y += (targetCamY - camera.y) * Math.min(1, 6*dt);
 
@@ -483,6 +555,9 @@ function draw() {
   // platforms
   for (const p of platforms) drawPlatform(p);
 
+  // plane (draw before monsters so it appears beneath if desired)
+  drawPlane(plane);
+
   // monsters
   for (const m of monsters) drawMonster(m);
 
@@ -492,8 +567,8 @@ function draw() {
   // finish flag
   drawFlag(flag);
 
-  // player
-  drawPlayer(player);
+  // player (only draw if not in plane)
+  if (!player.inPlane) drawPlayer(player);
 
   ctx.restore();
 
@@ -552,6 +627,89 @@ function drawPlatform(p) {
   ctx.fillStyle = '#7b523f';
   ctx.fillRect(p.x, p.y, p.w, Math.min(6, p.h));
   ctx.restore();
+}
+
+function drawPlane(pl) {
+  ctx.save();
+  // idle bobbing when unoccupied
+  const now = performance.now()/1000;
+  let py = pl.y;
+  if (!pl.occupied) {
+    py = pl.oy + Math.sin(now * pl.bobSpeed) * pl.bobAmp;
+  }
+  ctx.translate(pl.x + pl.w/2, py + pl.h/2);
+
+  // plane body
+  ctx.save();
+  ctx.fillStyle = '#2196f3';
+  ctx.strokeStyle = '#0b63b4';
+  ctx.lineWidth = 2;
+  // body rectangle
+  ctx.translate(-pl.w/2, -pl.h/2);
+  roundRect(ctx, 0, 0, pl.w, pl.h, 8, true, true);
+
+  // cockpit (transparent glass)
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.fillRect(pl.w*0.22, -pl.h*0.34 + pl.h/2, pl.w*0.32, pl.h*0.48);
+
+  // wing
+  ctx.fillStyle = '#1976d2';
+  ctx.fillRect(pl.w*0.08, pl.h*0.18, pl.w*0.84, pl.h*0.12);
+
+  ctx.restore();
+
+  // propeller (at front)
+  ctx.save();
+  ctx.translate(-pl.w/2, 0);
+  ctx.rotate(pl.propRot);
+  // blades
+  ctx.fillStyle = '#ddd';
+  for (let i=0;i<3;i++) {
+    ctx.beginPath();
+    ctx.ellipse(0, 0, pl.w*0.02, pl.h*0.28, i * Math.PI*2/3, 0, Math.PI*2);
+    ctx.fill();
+  }
+  // hub
+  ctx.fillStyle = '#666';
+  ctx.beginPath();
+  ctx.arc(0,0, pl.h*0.12, 0, Math.PI*2);
+  ctx.fill();
+  ctx.restore();
+
+  // little pilot indicator if occupied
+  if (pl.occupied) {
+    ctx.fillStyle = '#222';
+    ctx.beginPath();
+    ctx.arc(-pl.w*0.1, -pl.h*0.05, 6, 0, Math.PI*2);
+    ctx.fill();
+  } else {
+    // draw small "enter" hint above cockpit
+    ctx.fillStyle = 'rgba(0,0,0,0.06)';
+    ctx.font = 'bold 12px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('Jump to enter', pl.w*0.0, -pl.h*0.7);
+  }
+
+  ctx.restore();
+}
+
+// helper to draw rounded rect
+function roundRect(ctx, x, y, w, h, r, fill, stroke) {
+  if (typeof r === 'undefined') r = 5;
+  if (typeof r === 'number') r = {tl: r, tr: r, br: r, bl: r};
+  ctx.beginPath();
+  ctx.moveTo(x + r.tl, y);
+  ctx.lineTo(x + w - r.tr, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r.tr);
+  ctx.lineTo(x + w, y + h - r.br);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r.br, y + h);
+  ctx.lineTo(x + r.bl, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r.bl);
+  ctx.lineTo(x, y + r.tl);
+  ctx.quadraticCurveTo(x, y, x + r.tl, y);
+  ctx.closePath();
+  if (fill) ctx.fill();
+  if (stroke) ctx.stroke();
 }
 
 function drawCoin(c) {
@@ -706,6 +864,8 @@ function resetPlayer() {
   player.x = 160; player.y = 300; player.vx = 0; player.vy = 0; player.angle = 0;
   player.jumpsLeft = 2; player.canDash = true;
   player.invulnerable = false; player.invulnTimer = 0;
+  player.inPlane = false;
+  plane.occupied = false;
 }
 
 function resetGame() {
@@ -720,6 +880,7 @@ function resetGame() {
   updateHealthDOM();
   document.getElementById('hud').textContent = 'Score: 0';
   resetPlayer();
+  plane.x = plane.ox; plane.y = plane.oy; plane.vx = 0; plane.vy = 0; plane.propRot = 0;
 }
 
 // initialize
@@ -727,7 +888,13 @@ resetGame();
 requestAnimationFrame(loop);
 
 // debug
-window.game = { player, platforms, coins, flag, monsters, resetGame };
+window.game = { player, platforms, coins, flag, monsters, plane, resetGame };
 </script>
 </body>
 </html>
+
+Notes and tips
+- Controls: Jump into plane by standing near the cockpit and pressing W/Space/Up. Fly with Arrow keys. Press E to exit the plane.
+- Camera follows the plane while piloting.
+- The plane has a simple spinning propeller animation and bobs slightly when idle. You can tweak plane.acc, maxSpeed, drag, bobAmp, and prop rotation multipliers for different feel.
+- If you want the player to be visible while inside the cockpit, or to have a separate "enter" button, I can adjust that behavior.
