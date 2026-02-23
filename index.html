@@ -3,30 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="styles.css">
-    <title>Five Nights at Fischys</title>
+    <title>Baby Click</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #fff;
+        }
+        h1 {
+            color: #8B0000; /* Bloody dark red */
+        }
+        #start-button {
+            width: 40px;
+            height: 40px;
+            background-color: #007BFF;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
-    <div id="start-screen">
-        <h1>Five Nights at Fischys</h1>
-        <button id="start-button">Start Game</button>
-    </div>
-
-    <div id="office" style="display:none;">
-        <div id="camera-view">
-            <h2>Camera Feed</h2>
-            <div id="camera-feed"></div>
-        </div>
-        <div id="controls">
-            <button id="left-door">Left Door</button>
-            <button id="right-door">Right Door</button>
-            <button id="light">Light</button>
-        </div>
-        <div id="animatronic">
-            <img id="animatronic-image" src="/path-to-your-animatronic-image.png" alt="Animatronic">
-        </div>
-    </div>
-
-    <script src="script.js"></script>
+    <h1>Welcome to Baby Click</h1>
+    <button id="start-button">Start</button>
 </body>
 </html>
